@@ -1,0 +1,16 @@
+.DS_Store
+*.pyc
+__pycache__/
+.tempmediaStorage/
+*.webp
+*.png
+*.gif
+*.jpg
+*.jpeg
+*.mp4
+*.wav
+*.mp3
+*.mkv
+*.avi
+*.mov
+*.webm
