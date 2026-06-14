@@ -1,9 +1,4 @@
-import { pipeline, env } from './lib/transformers.js';
-
-// Configure transformers.js environment for local model loading with remote fallback
-env.allowLocalModels = true;
-env.allowRemoteModels = true;
-env.localModelPath = './models/';
+// ToMD Frontend Orchestration
 
 document.addEventListener("DOMContentLoaded", () => {
   // --- DOM Elements ---
@@ -40,7 +35,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- App State ---
   let selectedFile = null;
-  let whisperPipeline = null; // Cache model inside memory
   let convertedMarkdown = "";
 
   // File extensions categories
@@ -617,41 +611,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let rawAudio = audioBuffer.getChannelData(0);
 
-    // Load Whisper WASM model via Xenova pipeline
-    addLogEntry("Converter", "Accessing Whisper WASM engine...");
-    currentStatusText.textContent = "Loading Whisper model weights...";
+    // Load and run Whisper model via a Web Worker to keep main thread responsive
+    const modelName = whisperModelSelect.value || "Xenova/whisper-tiny.en";
+    const isLocal = modelName === "Xenova/whisper-tiny.en";
+    addLogEntry("Converter", "Accessing Whisper WASM engine in background worker...");
 
-    if (!whisperPipeline) {
-      const modelName = whisperModelSelect.value || "Xenova/whisper-tiny.en";
-      const isLocal = modelName === "Xenova/whisper-tiny.en";
-      addLogEntry("System", isLocal ? `Loading local weights for ${modelName}...` : `Downloading weights for ${modelName}...`);
+    badgeWhisper.className = "diagnostic-badge loading";
 
-      badgeWhisper.className = "diagnostic-badge loading";
+    const transcriptionResult = await new Promise((resolve, reject) => {
+      const worker = new Worker('./whisper-worker.js', { type: 'module' });
 
-      whisperPipeline = await pipeline("automatic-speech-recognition", modelName, {
-        progress_callback: (p) => {
-          if (p.status === "progress") {
-            const pct = Math.round(p.progress);
-            currentStatusText.textContent = isLocal
-              ? `Loading local Whisper model: ${pct}%`
-              : `Downloading Whisper model: ${pct}%`;
-            progressBarFill.style.width = Math.min(85, 20 + p.progress * 0.5) + "%";
-          }
+      worker.onmessage = (event) => {
+        const data = event.data;
+        if (data.status === "loading") {
+          currentStatusText.textContent = data.message;
+          addLogEntry("System", isLocal ? `Loading local weights for ${modelName}...` : `Downloading weights for ${modelName}...`);
+        } else if (data.status === "progress") {
+          const pct = Math.round(data.progress);
+          currentStatusText.textContent = isLocal
+            ? `Loading local Whisper model: ${pct}%`
+            : `Downloading Whisper model: ${pct}%`;
+          progressBarFill.style.width = Math.min(85, 20 + data.progress * 0.5) + "%";
+        } else if (data.status === "loaded") {
+          badgeWhisper.className = "diagnostic-badge available";
+          addLogEntry("System", data.message);
+        } else if (data.status === "transcribing") {
+          addLogEntry("Converter", "Running automatic speech recognition transcription...");
+          currentStatusText.textContent = data.message;
+          progressBarFill.style.width = "75%";
+        } else if (data.status === "completed") {
+          addLogEntry("Converter", "ASR pipeline finished transcription.");
+          worker.terminate();
+          resolve(data.result);
+        } else if (data.status === "error") {
+          worker.terminate();
+          reject(new Error(data.error));
         }
-      });
+      };
 
-      badgeWhisper.className = "diagnostic-badge available";
-      addLogEntry("System", isLocal ? "Local Whisper model loaded." : "Whisper model cached inside browser memory.");
-    }
-
-    addLogEntry("Converter", "Running automatic speech recognition transcription...");
-    currentStatusText.textContent = "Transcribing voice...";
-    progressBarFill.style.width = "75%";
-
-    const transcriptionResult = await whisperPipeline(rawAudio, {
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      return_timestamps: true
+      // Pass the audio buffer as a transferable to avoid memory copy
+      worker.postMessage({
+        action: "transcribe",
+        audio: rawAudio,
+        modelName: modelName
+      }, [rawAudio.buffer]);
     });
 
     addLogEntry("Converter", "ASR pipeline finished transcription.");
