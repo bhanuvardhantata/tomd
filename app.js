@@ -638,7 +638,12 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (data.status === "transcribing") {
           addLogEntry("Converter", "Running automatic speech recognition transcription...");
           currentStatusText.textContent = data.message;
-          progressBarFill.style.width = "75%";
+          progressBarFill.style.width = "30%";
+        } else if (data.status === "transcribing_chunk") {
+          addLogEntry("Converter", data.message);
+          currentStatusText.textContent = data.message;
+          const currentProgress = 30 + Math.round((data.progress / 100) * 65);
+          progressBarFill.style.width = currentProgress + "%";
         } else if (data.status === "completed") {
           addLogEntry("Converter", "ASR pipeline finished transcription.");
           worker.terminate();
