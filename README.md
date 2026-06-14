@@ -63,6 +63,7 @@ The entire conversion pipeline executes **inside the browser sandbox**. No file 
 | 📊 **Live Progress** | Real-time stage stepper, progress bar, and processing logs |
 | 👁️ **Dual View** | Preview rendered Markdown or view raw source with syntax highlighting |
 | 📋 **One-Click Export** | Copy to clipboard or download as `.md` file |
+| 🤖 **AI Summary** | Generates detailed summaries & insights of converted content via Local (Gemini Nano) or Cloud (Gemini, OpenAI, Anthropic) engines |
 | 🌐 **Zero Backend** | Static files only — serve from any HTTP server, GitHub Pages, or `file://` |
 
 ---
@@ -638,6 +639,9 @@ ToMD has **zero build dependencies**. There is no `package.json`, no `node_modul
 | **Whisper Model** | Dropdown | `Xenova/whisper-tiny.en` | 2 options | Select ASR model quality vs. speed |
 | **Keyframe Interval** | Number input | `30` | `5–300` seconds | How often to capture video frames for OCR |
 | **Max File Size** | Hardcoded | `500 MB` | — | Configurable in `app.js` via `maxUploadSizeMb` |
+| **Summary Engine** | Dropdown | `gemini` | Local, Gemini, OpenAI, Anthropic | Model engine for generating document summaries |
+| **API Key** | Password input | *(empty)* | Session-only | Authentication key for cloud providers (never saved to storage) |
+| **Custom Proxy** | Text input | *(empty)* | Custom URL | Optional proxy host URL to bypass browser CORS restrictions |
 
 ---
 
@@ -645,7 +649,9 @@ ToMD has **zero build dependencies**. There is no `package.json`, no `node_modul
 
 | Aspect | Implementation |
 | :--- | :--- |
-| **Data Privacy** | All file content stays in the browser. Zero network requests for file data |
+| **Data Privacy** | All file content stays in the browser. Zero network requests for raw file data |
+| **API Key Security** | **Session-only key storage**. API Keys are kept in-memory and are never written to `localStorage` or cookies (automatically cleared on page reload) |
+| **Proxy Routing** | Optional proxy URL input allows secure custom routing to bypass browser CORS constraints |
 | **XSS Prevention** | All rendered HTML is sanitized through **DOMPurify** before DOM injection |
 | **Content Security** | HTML preview is contained within the application's DOM (no iframes) |
 | **Model Loading** | Default Whisper model (`tiny.en`) is bundled locally; no download needed |

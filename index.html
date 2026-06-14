@@ -161,6 +161,37 @@
             </svg>
           </button>
         </div>
+
+        <!-- AI Summary Settings -->
+        <div class="settings-section">
+          <h3>AI Summary Options</h3>
+
+          <div class="form-group">
+            <label for="ai-summary-mode">Summary Engine</label>
+            <select id="ai-summary-mode" class="form-input">
+              <option value="local">Local (On-Device Gemini Nano)</option>
+              <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
+              <option value="openai">OpenAI (gpt-4o-mini)</option>
+              <option value="anthropic">Anthropic (claude-3-5-haiku)</option>
+            </select>
+            <span class="input-helper-text" id="ai-summary-helper">Native browser model. Requires Chrome 138+ with experimental flags.</span>
+          </div>
+
+          <div class="form-group" id="gemini-key-group">
+            <label for="gemini-api-key" id="api-key-label">Gemini API Key</label>
+            <div class="input-with-unit">
+              <input type="password" id="gemini-api-key" class="form-input" placeholder="AIzaSy...">
+              <button id="toggle-api-key" class="unit-badge api-docs-link" style="border:none; cursor:pointer; font-size:0.75rem; pointer-events:auto;" type="button">Show</button>
+            </div>
+            <span class="input-helper-text" id="api-key-helper">Enter key for this session. (Will not be saved on page reload). <a href="https://aistudio.google.com/" target="_blank" class="browse-link" id="api-key-link">Get a free key here</a>.</span>
+          </div>
+
+          <div class="form-group hidden" id="custom-proxy-group">
+            <label for="custom-proxy-url">Custom API Host / Proxy</label>
+            <input type="text" id="custom-proxy-url" class="form-input" placeholder="https://my-proxy.com">
+            <span class="input-helper-text">Optional. Use to route requests through a custom proxy to avoid CORS restrictions.</span>
+          </div>
+        </div>
       </section>
 
       <!-- Results/Progress Panel (Right Column) -->
@@ -210,6 +241,7 @@
             <div class="tabs-control">
               <button class="tab-btn active" data-tab="preview">Preview</button>
               <button class="tab-btn" data-tab="source">Markdown Source</button>
+              <button class="tab-btn" data-tab="summary">Summary</button>
             </div>
 
             <div class="action-buttons">
@@ -241,6 +273,11 @@
             <!-- Raw Markdown Source tab -->
             <div id="tab-pane-source" class="tab-pane">
               <textarea id="markdown-raw" class="markdown-raw" readonly></textarea>
+            </div>
+
+            <!-- Summary Tab Pane -->
+            <div id="tab-pane-summary" class="tab-pane markdown-body">
+              <!-- Rendered summary html will be injected here -->
             </div>
           </div>
         </div>

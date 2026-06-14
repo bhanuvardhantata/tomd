@@ -27,9 +27,21 @@ document.addEventListener("DOMContentLoaded", () => {
   const resultsContainer = document.getElementById("results-container");
   const tabPanePreview = document.getElementById("tab-pane-preview");
   const tabPaneSource = document.getElementById("tab-pane-source");
+  const tabPaneSummary = document.getElementById("tab-pane-summary");
   const markdownRawTextarea = document.getElementById("markdown-raw");
   const copyBtn = document.getElementById("copy-btn");
   const downloadBtn = document.getElementById("download-btn");
+
+  const aiSummaryMode = document.getElementById("ai-summary-mode");
+  const aiSummaryHelper = document.getElementById("ai-summary-helper");
+  const geminiKeyGroup = document.getElementById("gemini-key-group");
+  const geminiApiKeyInput = document.getElementById("gemini-api-key");
+  const toggleApiKeyBtn = document.getElementById("toggle-api-key");
+  const customProxyGroup = document.getElementById("custom-proxy-group");
+  const customProxyUrlInput = document.getElementById("custom-proxy-url");
+  const apiKeyLabel = document.getElementById("api-key-label");
+  const apiKeyHelper = document.getElementById("api-key-helper");
+  const apiKeyLink = document.getElementById("api-key-link");
 
   const tabButtons = document.querySelectorAll(".tab-btn");
 
@@ -74,6 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- Initialize App ---
   checkEngineDiagnostics();
+  initAISummaryFeature();
 
   // --- Event Listeners ---
 
@@ -127,12 +140,13 @@ document.addEventListener("DOMContentLoaded", () => {
       tabButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
 
-      if (tabName === "preview") {
-        tabPanePreview.classList.add("active");
-        tabPaneSource.classList.remove("active");
-      } else {
-        tabPanePreview.classList.remove("active");
-        tabPaneSource.classList.add("active");
+      // Hide all panes, show target pane
+      document.querySelectorAll(".tab-pane").forEach(pane => {
+        pane.classList.remove("active");
+      });
+      const targetPane = document.getElementById(`tab-pane-${tabName}`);
+      if (targetPane) {
+        targetPane.classList.add("active");
       }
     });
   });
@@ -234,6 +248,7 @@ document.addEventListener("DOMContentLoaded", () => {
     resultsContainer.classList.add("hidden");
 
     convertedMarkdown = "";
+    if (tabPaneSummary) tabPaneSummary.innerHTML = "";
     logsList.innerHTML = "";
     resetStages();
   }
@@ -867,6 +882,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     enableInputControls();
+    generateSummary(markdownContent);
   }
 
   function enableInputControls() {
@@ -951,5 +967,452 @@ document.addEventListener("DOMContentLoaded", () => {
     const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+  }
+
+  // --- AI Summarization Features ---
+
+  function initAISummaryFeature() {
+    // Note: API Keys are not persisted in localStorage to ensure security and follow user request.
+    if (geminiApiKeyInput) {
+      geminiApiKeyInput.value = "";
+    }
+
+    // API Key visibility toggle
+    if (toggleApiKeyBtn && geminiApiKeyInput) {
+      toggleApiKeyBtn.addEventListener("click", () => {
+        if (geminiApiKeyInput.type === "password") {
+          geminiApiKeyInput.type = "text";
+          toggleApiKeyBtn.textContent = "Hide";
+        } else {
+          geminiApiKeyInput.type = "password";
+          toggleApiKeyBtn.textContent = "Show";
+        }
+      });
+    }
+
+    // Trigger summary on API key input (without saving to localStorage)
+    if (geminiApiKeyInput) {
+      geminiApiKeyInput.addEventListener("change", () => {
+        if (convertedMarkdown && aiSummaryMode && aiSummaryMode.value !== "local") {
+          generateSummary(convertedMarkdown);
+        }
+      });
+    }
+
+    // Proxy host configurations (non-sensitive, so we can save it)
+    if (customProxyUrlInput) {
+      const savedProxy = localStorage.getItem("custom_proxy_url") || "";
+      customProxyUrlInput.value = savedProxy;
+      customProxyUrlInput.addEventListener("input", () => {
+        localStorage.setItem("custom_proxy_url", customProxyUrlInput.value.trim());
+      });
+    }
+
+    // Summary mode dropdown logic
+    if (aiSummaryMode) {
+      aiSummaryMode.addEventListener("change", async () => {
+        localStorage.setItem("ai_summary_mode", aiSummaryMode.value);
+        await updateSummarySettingsUI();
+        // Re-trigger summary generation if a file was already converted
+        if (convertedMarkdown) {
+          generateSummary(convertedMarkdown);
+        }
+      });
+
+      // Load saved mode
+      const savedMode = localStorage.getItem("ai_summary_mode") || "gemini";
+      aiSummaryMode.value = savedMode;
+    }
+
+    updateSummarySettingsUI();
+  }
+
+  async function updateSummarySettingsUI() {
+    if (!aiSummaryMode || !aiSummaryHelper) return;
+    const mode = aiSummaryMode.value;
+
+    if (mode === "local") {
+      if (geminiKeyGroup) geminiKeyGroup.classList.add("hidden");
+      if (customProxyGroup) customProxyGroup.classList.add("hidden");
+      
+      const check = await checkLocalSummarizerSupport();
+      if (!check.supported) {
+        aiSummaryHelper.textContent = "Unsupported in this browser. Please use a cloud model.";
+        aiSummaryHelper.style.color = "var(--status-error)";
+      } else if (check.status === "available") {
+        aiSummaryHelper.textContent = "Local Gemini Nano is ready to use.";
+        aiSummaryHelper.style.color = "var(--status-success)";
+      } else if (check.status === "downloadable") {
+        aiSummaryHelper.textContent = "Model needs to be downloaded by Chrome. Click Convert to initiate.";
+        aiSummaryHelper.style.color = "var(--status-warning)";
+      } else {
+        aiSummaryHelper.textContent = `On-device summarizer status: ${check.status}.`;
+        aiSummaryHelper.style.color = "";
+      }
+    } else {
+      if (geminiKeyGroup) geminiKeyGroup.classList.remove("hidden");
+      if (customProxyGroup) customProxyGroup.classList.remove("hidden");
+      aiSummaryHelper.style.color = "";
+
+      if (mode === "gemini") {
+        aiSummaryHelper.textContent = "Summarize using Google Gemini API. (Bypasses browser CORS natively).";
+        if (apiKeyLabel) apiKeyLabel.textContent = "Gemini API Key";
+        if (geminiApiKeyInput) geminiApiKeyInput.placeholder = "AIzaSy...";
+        if (apiKeyLink) {
+          apiKeyLink.textContent = "Get a free key here";
+          apiKeyLink.href = "https://aistudio.google.com/";
+        }
+      } else if (mode === "openai") {
+        aiSummaryHelper.textContent = "Summarize using OpenAI Chat Completions (gpt-4o-mini).";
+        if (apiKeyLabel) apiKeyLabel.textContent = "OpenAI API Key";
+        if (geminiApiKeyInput) geminiApiKeyInput.placeholder = "sk-proj-...";
+        if (apiKeyLink) {
+          apiKeyLink.textContent = "Get a key here";
+          apiKeyLink.href = "https://platform.openai.com/";
+        }
+      } else if (mode === "anthropic") {
+        aiSummaryHelper.textContent = "Summarize using Anthropic Message API (claude-3-5-haiku).";
+        if (apiKeyLabel) apiKeyLabel.textContent = "Anthropic API Key";
+        if (geminiApiKeyInput) geminiApiKeyInput.placeholder = "sk-ant-...";
+        if (apiKeyLink) {
+          apiKeyLink.textContent = "Get a key here";
+          apiKeyLink.href = "https://console.anthropic.com/";
+        }
+      }
+    }
+  }
+
+  async function checkLocalSummarizerSupport() {
+    if (!('Summarizer' in self)) {
+      return { supported: false, status: "unsupported" };
+    }
+    try {
+      const options = { type: 'key-points', format: 'markdown', length: 'medium' };
+      const availability = await Summarizer.availability(options);
+      return { supported: true, status: availability };
+    } catch (e) {
+      console.warn("Error checking local summarizer:", e);
+      return { supported: false, status: "error", error: e.message };
+    }
+  }
+
+  function getApiEndpoint(defaultBase, path, proxyUrl) {
+    if (proxyUrl && proxyUrl.trim()) {
+      let base = proxyUrl.trim();
+      if (base.endsWith("/")) {
+        base = base.slice(0, -1);
+      }
+      return `${base}${path}`;
+    }
+    return `${defaultBase}${path}`;
+  }
+
+  async function generateSummary(markdownContent) {
+    if (!tabPaneSummary) return;
+    if (!markdownContent || !markdownContent.trim()) {
+      tabPaneSummary.innerHTML = `<div class="workspace-placeholder"><p>No converted content to summarize.</p></div>`;
+      return;
+    }
+
+    const mode = aiSummaryMode ? aiSummaryMode.value : "gemini";
+    
+    if (mode === "local") {
+      const check = await checkLocalSummarizerSupport();
+      if (!check.supported) {
+        tabPaneSummary.innerHTML = `
+          <div class="workspace-placeholder">
+            <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="var(--status-error)" stroke-width="1.2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <h3 style="color: var(--status-error);">Local AI Unsupported</h3>
+            <p>Your browser or system configuration does not support the experimental built-in Summarizer API (Gemini Nano).</p>
+            <p>Please switch to one of the cloud model engines in the left options panel.</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (check.status === "downloadable" || check.status === "downloading") {
+        tabPaneSummary.innerHTML = `
+          <div class="workspace-placeholder">
+            <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="var(--status-warning)" stroke-width="1.2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <h3>Download Required</h3>
+            <p>To summarize locally, Chrome needs to download the Gemini Nano model (~1.5GB) to your device.</p>
+            <button id="btn-start-model-download" class="btn btn-primary btn-sm" style="margin-top: 10px;">Download Model & Summarize</button>
+          </div>
+        `;
+
+        const btnDownload = document.getElementById("btn-start-model-download");
+        if (btnDownload) {
+          btnDownload.addEventListener("click", async () => {
+            try {
+              await startLocalSummarizationWithDownload(markdownContent);
+            } catch (err) {
+              console.error("Local summarization failed:", err);
+              tabPaneSummary.innerHTML = `<p class="error-msg">Local Summarizer failed: ${err.message}</p>`;
+            }
+          });
+        }
+        return;
+      }
+
+      // If available, run immediately
+      try {
+        tabPaneSummary.innerHTML = `
+          <div class="workspace-placeholder">
+            <svg class="placeholder-icon" style="animation: pulse 1.2s infinite ease-in-out;" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="1.2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 16v-4"></path>
+              <path d="M12 8h.01"></path>
+            </svg>
+            <h3>Analyzing locally...</h3>
+            <p>Distilling document content using native Gemini Nano model...</p>
+          </div>
+        `;
+        const summary = await summarizeWithLocalAI(markdownContent);
+        renderSummaryHTML(summary);
+      } catch (err) {
+        console.error("Local summarization failed:", err);
+        tabPaneSummary.innerHTML = `<p class="error-msg">Local Summarizer failed: ${err.message}</p>`;
+      }
+
+    } else {
+      // Cloud modes
+      const apiKey = geminiApiKeyInput ? geminiApiKeyInput.value.trim() : "";
+      const proxyUrl = customProxyUrlInput ? customProxyUrlInput.value.trim() : "";
+      
+      const labelText = apiKeyLabel ? apiKeyLabel.textContent : "API Key";
+      if (!apiKey) {
+        tabPaneSummary.innerHTML = `
+          <div class="workspace-placeholder">
+            <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <h3>${labelText} Required</h3>
+            <p>This session requires an active API Key. Please enter it in the left settings panel.</p>
+          </div>
+        `;
+        return;
+      }
+
+      try {
+        tabPaneSummary.innerHTML = `
+          <div class="workspace-placeholder">
+            <svg class="placeholder-icon" style="animation: float 3s ease-in-out infinite;" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="1.2">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+            <h3>Generating Summary...</h3>
+            <p>Sending request to the configured API endpoint...</p>
+          </div>
+        `;
+        
+        let summary = "";
+        if (mode === "gemini") {
+          summary = await summarizeWithGeminiAPI(markdownContent, apiKey, proxyUrl);
+        } else if (mode === "openai") {
+          summary = await summarizeWithOpenAI(markdownContent, apiKey, proxyUrl);
+        } else if (mode === "anthropic") {
+          summary = await summarizeWithAnthropic(markdownContent, apiKey, proxyUrl);
+        }
+        
+        renderSummaryHTML(summary);
+      } catch (err) {
+        console.error("Cloud API summarization failed:", err);
+        tabPaneSummary.innerHTML = `
+          <div class="workspace-placeholder">
+            <h3 style="color: var(--status-error);">Summarization Failed</h3>
+            <p class="error-msg" style="margin-top:10px;">${err.message}</p>
+            <p style="font-size: 0.8rem; margin-top: 10px;">Please check if your API Key is valid or if you are facing CORS restrictions (if using default hosts for OpenAI/Anthropic). You can also configure a custom API proxy.</p>
+          </div>
+        `;
+      }
+    }
+  }
+
+  async function startLocalSummarizationWithDownload(markdownContent) {
+    if (!tabPaneSummary) return;
+    tabPaneSummary.innerHTML = `
+      <div class="workspace-placeholder">
+        <svg class="placeholder-icon" style="animation: pulse 1.5s infinite;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        <h3>Downloading Local AI Model...</h3>
+        <p id="download-progress-text">Downloading Gemini Nano (~1.5GB). This runs entirely in your browser. Please do not close this tab...</p>
+      </div>
+    `;
+
+    try {
+      const options = { type: 'key-points', format: 'markdown', length: 'medium' };
+      const summarizer = await Summarizer.create({
+        ...options,
+        monitor(m) {
+          m.addEventListener('downloadprogress', (e) => {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            const progressText = document.getElementById("download-progress-text");
+            if (progressText) {
+              progressText.textContent = `Downloading Gemini Nano model: ${pct}% complete...`;
+            }
+          });
+        }
+      });
+
+      tabPaneSummary.innerHTML = `
+        <div class="workspace-placeholder">
+          <svg class="placeholder-icon" style="animation: pulse 1.2s infinite ease-in-out;" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="1.2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 16v-4"></path>
+            <path d="M12 8h.01"></path>
+          </svg>
+          <h3>Analyzing locally...</h3>
+          <p>Model download complete. Analyzing document...</p>
+        </div>
+      `;
+
+      const summary = await summarizer.summarize(markdownContent);
+      renderSummaryHTML(summary);
+      
+      // Update UI Status Badge
+      await updateSummarySettingsUI();
+    } catch (e) {
+      throw new Error(`Failed during download or initialization: ${e.message}`);
+    }
+  }
+
+  async function summarizeWithLocalAI(text) {
+    const options = { type: 'key-points', format: 'markdown', length: 'medium' };
+    const summarizer = await Summarizer.create(options);
+    const summary = await summarizer.summarize(text);
+    return summary;
+  }
+
+  async function summarizeWithGeminiAPI(text, apiKey, proxyUrl) {
+    const path = `/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const url = getApiEndpoint("https://generativelanguage.googleapis.com", path, proxyUrl);
+    
+    const prompt = `You are a helpful assistant. Provide a detailed, clear, and highly structured human-readable description and summary of the following document content in Markdown format. Outline key topics, main insights, and a brief TL;DR at the top. If there are tables, transcripts, or code blocks in the source, summarize what they represent:
+
+${text}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      const errMsg = errJson.error?.message || `HTTP ${response.status} Error`;
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    const summaryText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!summaryText) {
+      throw new Error("Invalid response structure from Gemini API");
+    }
+    return summaryText;
+  }
+
+  async function summarizeWithOpenAI(text, apiKey, proxyUrl) {
+    const path = "/v1/chat/completions";
+    const url = getApiEndpoint("https://api.openai.com", path, proxyUrl);
+    const model = "gpt-4o-mini";
+    
+    const prompt = `You are a helpful assistant. Provide a detailed, clear, and highly structured human-readable description and summary of the following document content in Markdown format. Outline key topics, main insights, and a brief TL;DR at the top. If there are tables, transcripts, or code blocks in the source, summarize what they represent:
+
+${text}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      const errMsg = errJson.error?.message || `HTTP ${response.status} Error`;
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    const summaryText = data.choices?.[0]?.message?.content;
+    if (!summaryText) {
+      throw new Error("Invalid response structure from OpenAI API");
+    }
+    return summaryText;
+  }
+
+  async function summarizeWithAnthropic(text, apiKey, proxyUrl) {
+    const path = "/v1/messages";
+    const url = getApiEndpoint("https://api.anthropic.com", path, proxyUrl);
+    const model = "claude-3-5-haiku-20241022";
+    
+    const prompt = `You are a helpful assistant. Provide a detailed, clear, and highly structured human-readable description and summary of the following document content in Markdown format. Outline key topics, main insights, and a brief TL;DR at the top. If there are tables, transcripts, or code blocks in the source, summarize what they represent:
+
+${text}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "dangerously-allow-browser": "true"
+      },
+      body: JSON.stringify({
+        model: model,
+        max_tokens: 4000,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      const errMsg = errJson.error?.message || `HTTP ${response.status} Error`;
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    const summaryText = data.content?.[0]?.text;
+    if (!summaryText) {
+      throw new Error("Invalid response structure from Anthropic API");
+    }
+    return summaryText;
+  }
+
+  function renderSummaryHTML(summaryMarkdown) {
+    if (!tabPaneSummary) return;
+    try {
+      const rawHtml = marked.parse(summaryMarkdown);
+      const cleanHtml = typeof DOMPurify !== "undefined"
+        ? DOMPurify.sanitize(rawHtml, { ADD_TAGS: ["code"], ADD_ATTR: ["class"] })
+        : rawHtml;
+      
+      tabPaneSummary.innerHTML = cleanHtml;
+      Prism.highlightAllUnder(tabPaneSummary);
+    } catch (e) {
+      console.error("Markdown parse summary error:", e);
+      tabPaneSummary.innerHTML = `<p class="error-msg">Summary rendering error: ${e.message}</p>
+                                  <textarea class="markdown-raw" readonly>${summaryMarkdown}</textarea>`;
+    }
   }
 });
