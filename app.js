@@ -545,6 +545,46 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
+      // Fallback to OCR if page has no selectable text (scanned PDF)
+      if (!pageText.trim() && typeof Tesseract !== "undefined") {
+        addLogEntry("Converter", `No selectable text on page ${idx}. Running local OCR scan...`);
+        try {
+          const scale = 1.5;
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+          };
+
+          await page.render(renderContext).promise;
+          const dataUrl = canvas.toDataURL("image/png");
+
+          const absoluteLangPath = new URL('./lib/lang-data', window.location.href).href;
+          const absoluteWorkerPath = new URL('./lib/tesseract-worker.min.js', window.location.href).href;
+          const absoluteCorePath = new URL('./lib/tesseract-core.wasm.js', window.location.href).href;
+
+          const ocrResult = await Tesseract.recognize(
+            dataUrl,
+            "eng",
+            {
+              workerPath: absoluteWorkerPath,
+              corePath: absoluteCorePath,
+              langPath: absoluteLangPath,
+            }
+          );
+          pageText = ocrResult.data.text || "";
+          addLogEntry("Converter", `OCR scan for page ${idx} completed successfully.`);
+        } catch (ocrErr) {
+          console.error(`OCR failed on page ${idx}:`, ocrErr);
+          addLogEntry("Error", `OCR failed on page ${idx}: ${ocrErr.message}`);
+        }
+      }
+
       if (pageText.trim()) {
         outputParts.push(pageText.trim());
       }
@@ -562,13 +602,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     addLogEntry("Converter", "Loading OCR worker model...");
 
+    const absoluteLangPath = new URL('./lib/lang-data', window.location.href).href;
+    const absoluteWorkerPath = new URL('./lib/tesseract-worker.min.js', window.location.href).href;
+    const absoluteCorePath = new URL('./lib/tesseract-core.wasm.js', window.location.href).href;
+
     const result = await Tesseract.recognize(
       file,
       "eng",
       {
-        workerPath: './lib/tesseract-worker.min.js',
-        corePath: './lib/tesseract-core.wasm.js',
-        langPath: './lib/lang-data',
+        workerPath: absoluteWorkerPath,
+        corePath: absoluteCorePath,
+        langPath: absoluteLangPath,
         logger: (m) => {
           if (m.status === "recognizing text") {
             const pct = Math.round(m.progress * 100);
@@ -695,10 +739,14 @@ document.addEventListener("DOMContentLoaded", () => {
           currentStatusText.textContent = `OCR Scan Frame ${idx + 1}/${frames.length}...`;
           progressBarFill.style.width = Math.min(95, 80 + (idx / frames.length) * 15) + "%";
 
+          const absoluteLangPath = new URL('./lib/lang-data', window.location.href).href;
+          const absoluteWorkerPath = new URL('./lib/tesseract-worker.min.js', window.location.href).href;
+          const absoluteCorePath = new URL('./lib/tesseract-core.wasm.js', window.location.href).href;
+
           const ocrResult = await Tesseract.recognize(dataUrl, "eng", {
-            workerPath: './lib/tesseract-worker.min.js',
-            corePath: './lib/tesseract-core.wasm.js',
-            langPath: './lib/lang-data',
+            workerPath: absoluteWorkerPath,
+            corePath: absoluteCorePath,
+            langPath: absoluteLangPath,
           });
           const text = ocrResult.data.text.trim();
 
